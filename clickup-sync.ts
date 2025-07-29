@@ -279,7 +279,6 @@ async function syncSourceTask(task: TaskData, srcKey: string): Promise<void> {
 			name: t.name,
 			description: t.description,
 			status: destStatus,
-			tags: t.tags.map((tag) => tag.name),
 			due_date: t.due_date,
 			start_date: t.start_date,
 			assignees: [DEST_USER_ID],
@@ -296,7 +295,6 @@ async function syncSourceTask(task: TaskData, srcKey: string): Promise<void> {
 		const payload = {
 			name: t.name,
 			description: t.description,
-			tags: t.tags.map((tag) => tag.name),
 			due_date: t.due_date,
 			start_date: t.start_date,
 		};
