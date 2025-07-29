@@ -100,6 +100,7 @@ interface SpaceInfo {
 }
 interface FolderInfo {
 	id: string;
+	name: string; // aggiunto per poter leggere f.name in ensureFolder
 }
 interface ListInfo {
 	id: string;
@@ -244,9 +245,43 @@ async function ensureSpace(name: string): Promise<SpaceInfo> {
 	return createRes.data;
 }
 
-// Assicura che una List esista nel Space destinazione
-async function ensureList(spaceId: string, name: string): Promise<ListInfo> {
+// Assicura che una Folder esista in destinazione
+async function ensureFolder(
+	spaceId: string,
+	name: string,
+): Promise<FolderInfo> {
 	const client = createClient(DEST_KEY);
+	const res = await client.get<{ folders: FolderInfo[] }>(
+		`/space/${spaceId}/folder`,
+	);
+	const found = res.data.folders.find((f) => f.name === name);
+	if (found) return found;
+	const createRes = await client.post<FolderInfo>(`/space/${spaceId}/folder`, {
+		name,
+	});
+	return createRes.data;
+}
+
+// Assicura che una List esista nel Space o nella Folder destinazione
+async function ensureList(
+	spaceId: string,
+	name: string,
+	folderName?: string,
+): Promise<ListInfo> {
+	const client = createClient(DEST_KEY);
+	if (folderName) {
+		const folder = await ensureFolder(spaceId, folderName);
+		const res = await client.get<{ lists: ListInfo[] }>(
+			`/folder/${folder.id}/list`,
+		);
+		const found = res.data.lists.find((l) => l.name === name);
+		if (found) return found;
+		const createRes = await client.post<ListInfo>(`/folder/${folder.id}/list`, {
+			name,
+			content: "",
+		});
+		return createRes.data;
+	}
 	const res = await client.get<{ lists: ListInfo[] }>(`/space/${spaceId}/list`);
 	const found = res.data.lists.find((l) => l.name === name);
 	if (found) return found;
@@ -293,7 +328,13 @@ async function syncSourceTask(task: TaskData, srcKey: string): Promise<void> {
 		`/space/${t.space.id}`,
 	);
 	const space = await ensureSpace(spaceInfo.data.name);
-	const list = await ensureList(space.id, t.list.name);
+
+	// recupera il nome della folder sorgente (se esiste)
+	const listDetail = await clientSrc.get<{
+		folder?: { id: string; name: string };
+	}>(`/list/${t.list.id}`);
+	const folderName = listDetail.data.folder?.name;
+	const list = await ensureList(space.id, t.list.name, folderName);
 
 	// Determina status
 	const destStatus = mapStatus(t.status);
@@ -385,7 +426,11 @@ async function cleanupDestAssignments(): Promise<void> {
 						}
 					}
 					if (!stillAssigned) {
-						await clientDest.put(`/task/${dt.id}`, { assignees: [] });
+						await clientDest.put(`/task/${dt.id}`, {
+							assignees: {
+								rem: [DEST_USER_ID],
+							},
+						});
 						console.debug(
 							`[DEBUG] removed assignees on dest=${dt.id} name=${dt.name}`,
 						);
