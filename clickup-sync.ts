@@ -114,6 +114,7 @@ interface TaskData {
 	tags: { name: string }[];
 	due_date?: number;
 	start_date?: number;
+	time_estimate?: number;
 	assignees: { id: string }[];
 	space: { id: string; name: string };
 	list: { id: string; name: string };
@@ -352,6 +353,7 @@ async function syncSourceTask(task: TaskData, srcKey: string): Promise<void> {
 			due_date: t.due_date,
 			start_date: t.start_date,
 			assignees: [DEST_USER_ID],
+			time_estimate: t.time_estimate,
 			custom_fields: [
 				{ id: CUSTOM_FIELD_SOURCE_TASK_ID, value: t.id },
 				{ id: CUSTOM_FIELD_SOURCE_LIST_ID, value: t.list.id },
@@ -370,6 +372,7 @@ async function syncSourceTask(task: TaskData, srcKey: string): Promise<void> {
 			description: t.description,
 			due_date: t.due_date,
 			start_date: t.start_date,
+			time_estimate: t.time_estimate,
 		};
 		await clientDest.put(`/task/${destId}`, payload);
 		console.debug(`[DEBUG] updated dest=${destId} fields`);
