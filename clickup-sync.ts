@@ -11,8 +11,10 @@ const SOURCE_TEAM_IDS: string[] =
 const DEST_KEY: string = process.env.DEST_KEY?.trim() || "";
 const DEST_TEAM_ID: string = process.env.DEST_TEAM_ID?.trim() || "";
 // ID del custom field in ClickUp destinazione usato per memorizzare l'ID task sorgente
-const CUSTOM_FIELD_SOURCE_ID: string =
-	process.env.CUSTOM_FIELD_SOURCE_ID?.trim() || "";
+const CUSTOM_FIELD_SOURCE_TASK_ID: string =
+	process.env.CUSTOM_FIELD_SOURCE_TASK_ID?.trim() || "";
+const CUSTOM_FIELD_SOURCE_LIST_ID: string =
+	process.env.CUSTOM_FIELD_SOURCE_LIST_ID?.trim() || "";
 const SYNC_INTERVAL_MS: number =
 	Number(process.env.SYNC_INTERVAL_MS) || 5 * 60 * 1000;
 
@@ -39,15 +41,19 @@ if (!DEST_TEAM_ID) {
 	console.error("Error: DEST_TEAM_ID non impostato");
 	process.exit(1);
 }
-if (!CUSTOM_FIELD_SOURCE_ID) {
-	console.error("Error: CUSTOM_FIELD_SOURCE_ID non impostato");
+if (!CUSTOM_FIELD_SOURCE_TASK_ID) {
+	console.error("Error: CUSTOM_FIELD_SOURCE_TASK_ID non impostato");
+	process.exit(1);
+}
+if (!CUSTOM_FIELD_SOURCE_LIST_ID) {
+	console.error("Error: CUSTOM_FIELD_SOURCE_LIST_ID non impostato");
 	process.exit(1);
 }
 
 console.debug(
 	`[DEBUG] ENV: sources=${SOURCE_KEYS.length}, teams=${SOURCE_TEAM_IDS.join(
 		",",
-	)}, destTeam=${DEST_TEAM_ID}, field=${CUSTOM_FIELD_SOURCE_ID}, interval=${SYNC_INTERVAL_MS}ms`,
+	)}, destTeam=${DEST_TEAM_ID}, field=${CUSTOM_FIELD_SOURCE_TASK_ID}, interval=${SYNC_INTERVAL_MS}ms`,
 );
 
 // Factory per client Axios con log
@@ -73,6 +79,18 @@ async function initDestUser(): Promise<void> {
 	const res = await client.get<{ user: { id: string } }>(`/user`);
 	DEST_USER_ID = Number(res.data.user.id);
 	console.debug(`[DEBUG] DEST_USER_ID=${DEST_USER_ID}`);
+}
+
+// Nuove variabili per userId sorgenti
+let SOURCE_USER_IDS: number[] = [];
+
+// Inizializza tutti gli userId dai SOURCE_KEYS
+async function initSourceUsers(): Promise<void> {
+	for (let i = 0; i < SOURCE_KEYS.length; i++) {
+		const client = createClient(SOURCE_KEYS[i]);
+		const res = await client.get<{ user: { id: string } }>(`/user`);
+		SOURCE_USER_IDS[i] = Number(res.data.user.id);
+	}
 }
 
 // Tipi dati rilevanti
@@ -239,17 +257,28 @@ async function ensureList(spaceId: string, name: string): Promise<ListInfo> {
 	return createRes.data;
 }
 
-// Trova task destinazione tramite custom field filter
+// Trova task destinazione tramite doppio custom‐field (taskId + listId)
 async function findDestTaskId(
 	listId: string,
 	sourceTaskId: string,
+	sourceListId: string,
 ): Promise<string | undefined> {
 	const client = createClient(DEST_KEY);
-	// Usa param filtering custom_fields[{id}]:{value}
 	const res = await client.get<{ tasks: TaskData[] }>(
 		`/list/${listId}/task?custom_field=${sourceTaskId}`,
 	);
-	return res.data.tasks.length ? res.data.tasks[0].id : undefined;
+	const found = res.data.tasks.find(
+		(task) =>
+			task.custom_fields?.some(
+				(cf) =>
+					cf.id === CUSTOM_FIELD_SOURCE_TASK_ID && cf.value === sourceTaskId,
+			) &&
+			task.custom_fields?.some(
+				(cf) =>
+					cf.id === CUSTOM_FIELD_SOURCE_LIST_ID && cf.value === sourceListId,
+			),
+	);
+	return found?.id;
 }
 
 // Sincronizza singola task
@@ -270,11 +299,11 @@ async function syncSourceTask(task: TaskData, srcKey: string): Promise<void> {
 	const destStatus = mapStatus(t.status);
 	const clientDest = createClient(DEST_KEY);
 
-	// Cerca copia esistente
-	let destId = await findDestTaskId(list.id, t.id);
+	// Cerca copia esistente (ora con listId)
+	let destId = await findDestTaskId(list.id, t.id, t.list.id);
 
 	if (!destId) {
-		// Crea nuova task con campo personalizzato
+		// Crea nuova task con doppio custom‐field
 		const payload = {
 			name: t.name,
 			description: t.description,
@@ -282,7 +311,10 @@ async function syncSourceTask(task: TaskData, srcKey: string): Promise<void> {
 			due_date: t.due_date,
 			start_date: t.start_date,
 			assignees: [DEST_USER_ID],
-			custom_fields: [{ id: CUSTOM_FIELD_SOURCE_ID, value: t.id }],
+			custom_fields: [
+				{ id: CUSTOM_FIELD_SOURCE_TASK_ID, value: t.id },
+				{ id: CUSTOM_FIELD_SOURCE_LIST_ID, value: t.list.id },
+			],
 		};
 		const createRes = await clientDest.post<{ id: string }>(
 			`/list/${list.id}/task`,
@@ -305,11 +337,72 @@ async function syncSourceTask(task: TaskData, srcKey: string): Promise<void> {
 	console.debug(`[DEBUG] syncSourceTask end=${t.id}`);
 }
 
+// Rimuove assignees su task di destinazione non più presenti o assegnati nel sorgente
+async function cleanupDestAssignments(): Promise<void> {
+	const clientDest = createClient(DEST_KEY);
+	const spacesRes = await clientDest.get<{ spaces: SpaceInfo[] }>(
+		`/team/${DEST_TEAM_ID}/space`,
+	);
+	for (const space of spacesRes.data.spaces) {
+		const listIds = await fetchListsForSpace(clientDest, space.id);
+		for (const listId of listIds) {
+			let page = 0;
+			while (true) {
+				const res = await clientDest.get<{ tasks: TaskData[] }>(
+					`/list/${listId}/task?page=${page}`,
+				);
+				if (!res.data.tasks.length) break;
+				for (const dt of res.data.tasks) {
+					const cfTask = dt.custom_fields?.find(
+						(cf) => cf.id === CUSTOM_FIELD_SOURCE_TASK_ID,
+					);
+					const cfList = dt.custom_fields?.find(
+						(cf) => cf.id === CUSTOM_FIELD_SOURCE_LIST_ID,
+					);
+					if (!cfTask || !cfList) continue;
+					const sourceTaskId = cfTask.value as string;
+					const sourceListId = cfList.value as string;
+
+					let stillAssigned = false;
+					for (let i = 0; i < SOURCE_KEYS.length; i++) {
+						const clientSrc = createClient(SOURCE_KEYS[i]);
+						try {
+							const sourceDetail = await clientSrc.get<TaskData>(
+								`/task/${sourceTaskId}`,
+							);
+							// verifica list sorgente
+							if (sourceDetail.data.list.id !== sourceListId) continue;
+
+							const isAssigned = sourceDetail.data.assignees.some(
+								(a) => Number(a.id) === SOURCE_USER_IDS[i],
+							);
+							if (isAssigned) {
+								stillAssigned = true;
+								break;
+							}
+						} catch {
+							// task non trovata in questo source
+						}
+					}
+					if (!stillAssigned) {
+						await clientDest.put(`/task/${dt.id}`, { assignees: [] });
+						console.debug(
+							`[DEBUG] removed assignees on dest=${dt.id} name=${dt.name}`,
+						);
+					}
+				}
+				page++;
+			}
+		}
+	}
+}
+
 // Ciclo principale di sincronizzazione
 async function syncAll(): Promise<void> {
 	console.debug(`[DEBUG] syncAll start`);
 	try {
 		await initDestUser();
+		await initSourceUsers();
 		for (let i = 0; i < SOURCE_KEYS.length; i++) {
 			const key = SOURCE_KEYS[i];
 			const team = SOURCE_TEAM_IDS[i];
@@ -319,6 +412,7 @@ async function syncAll(): Promise<void> {
 			}
 		}
 		console.log(`[${new Date().toISOString()}] Sync completed`);
+		await cleanupDestAssignments();
 	} catch (err) {
 		console.error("Sync error:", err);
 	}
