@@ -3,14 +3,14 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-// Configurazione da .env
+// Configuration from .env
 const SOURCE_KEYS: string[] =
 	process.env.SOURCE_KEYS?.split(",").map((k) => k.trim()) || [];
 const SOURCE_TEAM_IDS: string[] =
 	process.env.SOURCE_TEAM_IDS?.split(",").map((t) => t.trim()) || [];
 const DEST_KEY: string = process.env.DEST_KEY?.trim() || "";
 const DEST_TEAM_ID: string = process.env.DEST_TEAM_ID?.trim() || "";
-// ID del custom field in ClickUp destinazione usato per memorizzare l'ID task sorgente
+// Custom field ID in destination ClickUp used to store source task ID
 const CUSTOM_FIELD_SOURCE_TASK_ID: string =
 	process.env.CUSTOM_FIELD_SOURCE_TASK_ID?.trim() || "";
 const CUSTOM_FIELD_SOURCE_LIST_ID: string =
@@ -18,35 +18,35 @@ const CUSTOM_FIELD_SOURCE_LIST_ID: string =
 const SYNC_INTERVAL_MS: number =
 	Number(process.env.SYNC_INTERVAL_MS) || 5 * 60 * 1000;
 
-// Validazione variabili d'ambiente
+// Environment variables validation
 if (!SOURCE_KEYS.length) {
-	console.error("Error: SOURCE_KEYS non impostato");
+	console.error("Error: SOURCE_KEYS not set");
 	process.exit(1);
 }
 if (!SOURCE_TEAM_IDS.length) {
-	console.error("Error: SOURCE_TEAM_IDS non impostato");
+	console.error("Error: SOURCE_TEAM_IDS not set");
 	process.exit(1);
 }
 if (SOURCE_KEYS.length !== SOURCE_TEAM_IDS.length) {
 	console.error(
-		"Error: SOURCE_KEYS e SOURCE_TEAM_IDS devono avere stessa lunghezza",
+		"Error: SOURCE_KEYS and SOURCE_TEAM_IDS must have the same length",
 	);
 	process.exit(1);
 }
 if (!DEST_KEY) {
-	console.error("Error: DEST_KEY non impostato");
+	console.error("Error: DEST_KEY not set");
 	process.exit(1);
 }
 if (!DEST_TEAM_ID) {
-	console.error("Error: DEST_TEAM_ID non impostato");
+	console.error("Error: DEST_TEAM_ID not set");
 	process.exit(1);
 }
 if (!CUSTOM_FIELD_SOURCE_TASK_ID) {
-	console.error("Error: CUSTOM_FIELD_SOURCE_TASK_ID non impostato");
+	console.error("Error: CUSTOM_FIELD_SOURCE_TASK_ID not set");
 	process.exit(1);
 }
 if (!CUSTOM_FIELD_SOURCE_LIST_ID) {
-	console.error("Error: CUSTOM_FIELD_SOURCE_LIST_ID non impostato");
+	console.error("Error: CUSTOM_FIELD_SOURCE_LIST_ID not set");
 	process.exit(1);
 }
 
@@ -56,7 +56,7 @@ console.debug(
 	)}, destTeam=${DEST_TEAM_ID}, field=${CUSTOM_FIELD_SOURCE_TASK_ID}, interval=${SYNC_INTERVAL_MS}ms`,
 );
 
-// Factory per client Axios con log
+// Factory for Axios client with logging
 function createClient(apiKey: string): AxiosInstance {
 	const instance = axios.create({
 		baseURL: "https://api.clickup.com/api/v2",
@@ -72,7 +72,7 @@ function createClient(apiKey: string): AxiosInstance {
 	return instance;
 }
 
-// ID numerico utente destinazione
+// Numeric destination user ID
 let DEST_USER_ID: number;
 async function initDestUser(): Promise<void> {
 	const client = createClient(DEST_KEY);
@@ -81,10 +81,10 @@ async function initDestUser(): Promise<void> {
 	console.debug(`[DEBUG] DEST_USER_ID=${DEST_USER_ID}`);
 }
 
-// Nuove variabili per userId sorgenti
+// New variables for source userIds
 let SOURCE_USER_IDS: number[] = [];
 
-// Inizializza tutti gli userId dai SOURCE_KEYS
+// Initialize all userIds from SOURCE_KEYS
 async function initSourceUsers(): Promise<void> {
 	for (let i = 0; i < SOURCE_KEYS.length; i++) {
 		const client = createClient(SOURCE_KEYS[i]);
@@ -93,14 +93,14 @@ async function initSourceUsers(): Promise<void> {
 	}
 }
 
-// Tipi dati rilevanti
+// Relevant data types
 interface SpaceInfo {
 	id: string;
 	name: string;
 }
 interface FolderInfo {
 	id: string;
-	name: string; // aggiunto per poter leggere f.name in ensureFolder
+	name: string; // added to be able to read f.name in ensureFolder
 }
 interface ListInfo {
 	id: string;
@@ -121,7 +121,7 @@ interface TaskData {
 	custom_fields?: { id: string; value: any }[];
 }
 
-// Estrai liste da uno Space
+// Extract lists from a Space
 async function fetchListsForSpace(
 	client: AxiosInstance,
 	spaceId: string,
@@ -144,7 +144,7 @@ async function fetchListsForSpace(
 	return listIds;
 }
 
-// Recupera tutte le task assegnate all'utente sorgente
+// Retrieve all tasks assigned to the source user
 async function fetchAssignedTasks(
 	apiKey: string,
 	teamId: string,
@@ -153,12 +153,12 @@ async function fetchAssignedTasks(
 	const tasks: TaskData[] = [];
 	console.debug(`[DEBUG] fetchAssignedTasks start team=${teamId}`);
 
-	// Ottieni userId sorgente
+	// Get source userId
 	const userRes = await client.get<{ user: { id: string } }>(`/user`);
 	const sourceUserId = Number(userRes.data.user.id);
 	console.debug(`[DEBUG] sourceUserId=${sourceUserId}`);
 
-	// Itera spaces -> lists -> tasks
+	// Iterate spaces -> lists -> tasks
 	const spacesRes = await client.get<{ spaces: SpaceInfo[] }>(
 		`/team/${teamId}/space`,
 	);
@@ -181,7 +181,7 @@ async function fetchAssignedTasks(
 	return tasks;
 }
 
-// Mappa stato sorgente->dest (solo due stati)
+// Map source status to dest (only two states)
 function mapStatus(srcStatus: any): "to do" | "complete" {
 	let statusStr: string;
 	if (typeof srcStatus === "string") {
@@ -196,7 +196,7 @@ function mapStatus(srcStatus: any): "to do" | "complete" {
 	return statusStr.toLowerCase() === "complete" ? "complete" : "to do";
 }
 
-// Assicura che uno Space esista in destinazione
+// Ensure a Space exists in destination
 async function ensureSpace(name: string): Promise<SpaceInfo> {
 	const client = createClient(DEST_KEY);
 	const res = await client.get<{ spaces: SpaceInfo[] }>(
@@ -246,7 +246,7 @@ async function ensureSpace(name: string): Promise<SpaceInfo> {
 	return createRes.data;
 }
 
-// Assicura che una Folder esista in destinazione
+// Ensure a Folder exists in destination
 async function ensureFolder(
 	spaceId: string,
 	name: string,
@@ -263,7 +263,7 @@ async function ensureFolder(
 	return createRes.data;
 }
 
-// Assicura che una List esista nel Space o nella Folder destinazione
+// Ensure a List exists in the destination Space or Folder
 async function ensureList(
 	spaceId: string,
 	name: string,
@@ -293,7 +293,7 @@ async function ensureList(
 	return createRes.data;
 }
 
-// Trova task destinazione tramite doppio custom‐field (taskId + listId)
+// Find destination task via double custom-field (taskId + listId)
 async function findDestTaskId(
 	listId: string,
 	sourceTaskId: string,
@@ -317,35 +317,35 @@ async function findDestTaskId(
 	return found?.id;
 }
 
-// Sincronizza singola task
+// Synchronize single task
 async function syncSourceTask(task: TaskData, srcKey: string): Promise<void> {
 	console.debug(`[DEBUG] syncSourceTask start=${task.id}`);
 	const clientSrc = createClient(srcKey);
 	const detail = await clientSrc.get<TaskData>(`/task/${task.id}`);
 	const t = detail.data;
 
-	// Assicura Space e List in destinazione
+	// Ensure Space and List in destination
 	const spaceInfo = await clientSrc.get<{ name: string }>(
 		`/space/${t.space.id}`,
 	);
 	const space = await ensureSpace(spaceInfo.data.name);
 
-	// recupera il nome della folder sorgente (se esiste)
+	// retrieve source folder name (if exists)
 	const listDetail = await clientSrc.get<{
 		folder?: { id: string; name: string };
 	}>(`/list/${t.list.id}`);
 	const folderName = listDetail.data.folder?.name;
 	const list = await ensureList(space.id, t.list.name, folderName);
 
-	// Determina status
+	// Determine status
 	const destStatus = mapStatus(t.status);
 	const clientDest = createClient(DEST_KEY);
 
-	// Cerca copia esistente (ora con listId)
+	// Search for existing copy (now with listId)
 	let destId = await findDestTaskId(list.id, t.id, t.list.id);
 
 	if (!destId) {
-		// Crea nuova task con doppio custom‐field
+		// Create new task with double custom-field
 		const payload = {
 			name: t.name,
 			description: t.description,
@@ -366,7 +366,7 @@ async function syncSourceTask(task: TaskData, srcKey: string): Promise<void> {
 		destId = createRes.data.id;
 		console.debug(`[DEBUG] created dest=${destId}`);
 	} else {
-		// Aggiorna campi (nome, descrizione, tag, date) senza modificare lo status
+		// Update fields (name, description, tags, dates) without modifying status
 		const payload = {
 			name: t.name,
 			description: t.description,
@@ -381,7 +381,7 @@ async function syncSourceTask(task: TaskData, srcKey: string): Promise<void> {
 	console.debug(`[DEBUG] syncSourceTask end=${t.id}`);
 }
 
-// Rimuove assignees su task di destinazione non più presenti o assegnati nel sorgente
+// Remove assignees from destination tasks no longer present or assigned in source
 async function cleanupDestAssignments(): Promise<void> {
 	const clientDest = createClient(DEST_KEY);
 	const spacesRes = await clientDest.get<{ spaces: SpaceInfo[] }>(
@@ -414,7 +414,7 @@ async function cleanupDestAssignments(): Promise<void> {
 							const sourceDetail = await clientSrc.get<TaskData>(
 								`/task/${sourceTaskId}`,
 							);
-							// verifica list sorgente
+							// verify source list
 							if (sourceDetail.data.list.id !== sourceListId) continue;
 
 							const isAssigned = sourceDetail.data.assignees.some(
@@ -425,7 +425,7 @@ async function cleanupDestAssignments(): Promise<void> {
 								break;
 							}
 						} catch {
-							// task non trovata in questo source
+							// task not found in this source
 						}
 					}
 					if (!stillAssigned) {
@@ -445,7 +445,7 @@ async function cleanupDestAssignments(): Promise<void> {
 	}
 }
 
-// Ciclo principale di sincronizzazione
+// Main synchronization loop
 async function syncAll(): Promise<void> {
 	console.debug(`[DEBUG] syncAll start`);
 	try {
@@ -467,7 +467,9 @@ async function syncAll(): Promise<void> {
 	console.debug(`[DEBUG] syncAll end`);
 }
 
-// Avvia sincronizzazione periodica
-console.log(`Avvio sincronizzazione ogni ${SYNC_INTERVAL_MS / 60000} minuti`);
+// Start periodic synchronization
+console.log(
+	`Starting synchronization every ${SYNC_INTERVAL_MS / 60000} minutes`,
+);
 syncAll();
 setInterval(syncAll, SYNC_INTERVAL_MS);
