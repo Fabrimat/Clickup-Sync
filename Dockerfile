@@ -15,8 +15,5 @@ RUN npm ci --only=production && \
 COPY tsconfig.json ./
 COPY clickup-sync.ts ./
 
-# Copy .env file (or use environment variables at runtime)
-COPY .env* ./ 2>/dev/null || true
-
 # Run the TypeScript application
 CMD ["ts-node", "clickup-sync.ts"]
