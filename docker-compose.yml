@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  clickup-sync:
+    build: .
+    container_name: clickup-sync
+    restart: unless-stopped
+    environment:
+      - SOURCE_KEYS=${SOURCE_KEYS}
+      - SOURCE_TEAM_IDS=${SOURCE_TEAM_IDS}
+      - DEST_KEY=${DEST_KEY}
+      - DEST_TEAM_ID=${DEST_TEAM_ID}
+      - CUSTOM_FIELD_SOURCE_TASK_ID=${CUSTOM_FIELD_SOURCE_TASK_ID}
+      - CUSTOM_FIELD_SOURCE_LIST_ID=${CUSTOM_FIELD_SOURCE_LIST_ID}
+      - SYNC_INTERVAL_MS=${SYNC_INTERVAL_MS:-300000}
+    # Alternatively, use env_file:
+    # env_file:
+    #   - .env
