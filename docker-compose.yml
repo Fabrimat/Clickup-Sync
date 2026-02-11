@@ -13,6 +13,9 @@ services:
       - CUSTOM_FIELD_SOURCE_TASK_ID=${CUSTOM_FIELD_SOURCE_TASK_ID}
       - CUSTOM_FIELD_SOURCE_LIST_ID=${CUSTOM_FIELD_SOURCE_LIST_ID}
       - SYNC_INTERVAL_MS=${SYNC_INTERVAL_MS:-300000}
-    # Alternatively, use env_file:
-    # env_file:
-    #   - .env
+      - DB_PATH=/app/data/sync.db
+    volumes:
+      - sync-data:/app/data
+
+volumes:
+  sync-data:

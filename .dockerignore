@@ -2,8 +2,10 @@ node_modules
 npm-debug.log
 .git
 .gitignore
+.env
 .env.example
-README.md
 .vscode
 .idea
+data
+dist
 *.md
